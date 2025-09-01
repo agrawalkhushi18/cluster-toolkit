@@ -1,0 +1,14 @@
+Creating deployment folder "agrkhu-a3u" ...
+Initializing deployment group agrkhu-a3u/primary
+Testing if deployment group agrkhu-a3u/primary requires adding or changing cloud infrastructure
+Error: exit status 1
+
+Error: Failed to construct REST client
+
+  with module.k8s-provider-test-run.kubernetes_manifest.this["0"],
+  on modules/embedded/modules/management/kubernetes/main.tf line 101, in resource "kubernetes_manifest" "this":
+ 101: resource "kubernetes_manifest" "this" {
+
+cannot create REST client: no client config
+
+Hint: terraform plan for deployment group agrkhu-a3u/primary failed

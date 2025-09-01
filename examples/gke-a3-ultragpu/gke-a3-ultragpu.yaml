@@ -15,21 +15,21 @@
 blueprint_name: gke-a3-ultra
 
 vars:
-  project_id: # add this
-  deployment_name: # add this
-  region: # add this
-  zone: # add this
+  project_id: hpc-toolkit-dev
+  deployment_name: agrkhu-a3u
+  region: europe-west1
+  zone: europe-west1-b
   # Cidr block containing the IP of the machine calling terraform.
   # The following line must be updated for this example to work.
-  authorized_cidr: # add this
+  authorized_cidr: 0.0.0.0/0
   # The name of the compute engine reservation in the form of
   # <reservation-name>
   # To target a BLOCK_NAME, the name of the extended reservation
   # can be inputted as <reservation-name>/reservationBlocks/<reservation-block-name>
-  reservation: # add this
+  reservation: hpc-exr-2
   kueue_configuration_path: $(ghpc_stage("./kueue-configuration.yaml.tftpl"))
   gib_installer_path: $(ghpc_stage("./nccl-installer.yaml.tftpl"))
-  static_node_count: # add this
+  static_node_count: 2
   system_node_pool_disk_size_gb: 200
   a3ultra_node_pool_disk_size_gb: 100
   accelerator_type: nvidia-h200-141gb
@@ -263,6 +263,17 @@ deployment_groups:
         template_vars:
           version: v1.1.0
           accelerator_count: 8
+
+  - id: k8s-provider-test-run
+    source: modules/management/kubernetes
+    #use: [a3-ultragpu-cluster]
+    settings:
+      # Pass the cluster credentials to the new module
+      cluster_endpoint: $(a3-ultragpu-cluster.endpoint)
+      cluster_ca_certificate: $(a3-ultragpu-cluster.ca_certificate)
+      cluster_token: $(a3-ultragpu-cluster.access_token)
+      cluster_dependency: $(a3-ultragpu-cluster.gke_cluster_exists)
+      source_path: $(ghpc_stage("./test-namespace.yaml"))
 
   - id: job-template
     source: modules/compute/gke-job-template

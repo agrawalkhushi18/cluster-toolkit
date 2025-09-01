@@ -102,3 +102,19 @@ output "gke_version" {
   description = "GKE cluster's version."
   value       = google_container_cluster.gke_cluster.master_version
 }
+
+output "endpoint" {
+  description = "The GKE cluster endpoint."
+  value       = google_container_cluster.gke_cluster.endpoint
+}
+
+output "ca_certificate" {
+  description = "The GKE cluster CA certificate."
+  value       = google_container_cluster.gke_cluster.master_auth[0].cluster_ca_certificate
+}
+
+output "access_token" {
+  description = "Access token to authenticate to the GKE cluster."
+  value       = data.google_client_config.default.access_token
+  sensitive   = true
+}
