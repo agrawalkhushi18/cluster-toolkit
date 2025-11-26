@@ -58,8 +58,6 @@ spec:
         image: ${image}
         command:
         %{for s in command}- ${indent(8, yamlencode(s))}%{~ endfor }
-        securityContext:
-          privileged: ${privileged_mode}
         %{~ if gpu_limit != null || cpu_request != null || tpu_limit != null ~}
         resources:
           %{~ if gpu_limit != null || tpu_limit != null ~}

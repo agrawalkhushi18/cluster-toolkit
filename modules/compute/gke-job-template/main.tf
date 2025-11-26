@@ -145,7 +145,6 @@ locals {
       backoff_limit            = var.backoff_limit
       tolerations              = distinct(var.tolerations)
       security_context         = var.security_context
-      privileged_mode          = var.privileged_mode
       labels                   = local.labels
 
       empty_dir_volumes    = local.empty_dir_volumes
