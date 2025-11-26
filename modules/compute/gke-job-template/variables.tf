@@ -113,6 +113,12 @@ variable "security_context" {
   default = []
 }
 
+variable "privileged_mode" {
+  description = "The privileged mode for the container. If true, the container has access to all host devices."
+  type        = bool
+  default     = false
+}
+
 variable "machine_family" {
   description = "The machine family to use in the node selector (example: `n2`). If null then machine family will not be used as selector criteria."
   type        = string
