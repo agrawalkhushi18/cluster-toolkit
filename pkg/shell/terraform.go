@@ -25,11 +25,13 @@ import (
 	"hpc-toolkit/pkg/logging"
 	"hpc-toolkit/pkg/modulereader"
 	"hpc-toolkit/pkg/modulewriter"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
@@ -189,7 +191,7 @@ func planModule(tf *tfexec.Terraform, path string, destroy bool) (bool, error) {
 	if err != nil {
 		// Invoke `Plan` to get human-readable error.
 		// TODO: implement rendering to avoid double-call.
-		// Note planned deprecration of Plan in favor of JSON-only format
+		// Note planned deprecation of Plan in favor of JSON-only format
 		// https://github.com/hashicorp/terraform-exec/blob/1b7714111a94813e92936051fb3014fec81218d5/tfexec/plan.go#L128-L129
 		_, plainError := tf.Plan(context.Background(), tfexec.Destroy(destroy))
 		if plainError == nil { // shouldn't happen
@@ -216,7 +218,7 @@ func promptForApply(tf *tfexec.Terraform, path string, b ApplyBehavior) bool {
 			return false
 		}
 
-		re := regexp.MustCompile(`Plan: .*\n`)
+		re := regexp.MustCompile(`Plan: .*\\n`)
 		summary := re.FindString(plan)
 
 		if summary == "" {
@@ -261,11 +263,30 @@ func applyPlanJsonOutput(tf *tfexec.Terraform, path string) error {
 	}
 }
 
+type timestampWriter struct {
+	writer io.Writer
+}
+
+func (w *timestampWriter) Write(p []byte) (n int, err error) {
+	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	// ANSI escape codes for purple (magenta) color: \x1b[35m and reset: \x1b[0m
+	coloredTimestamp := "\x1b[35m" + timestamp + "\x1b[0m "
+	_, err = w.writer.Write([]byte(coloredTimestamp))
+	if err != nil {
+		return 0, err
+	}
+	return w.writer.Write(p)
+}
+
+func newTimestampWriter(writer io.Writer) io.Writer {
+	return &timestampWriter{writer: writer}
+}
+
 func applyPlanConsoleOutput(tf *tfexec.Terraform, path string) error {
 	planFileOpt := tfexec.DirOrPlan(path)
 	logging.Info("Running terraform apply on deployment group %s", tf.WorkingDir())
-	tf.SetStdout(os.Stdout)
-	tf.SetStderr(os.Stderr)
+	tf.SetStdout(newTimestampWriter(os.Stdout))
+	tf.SetStderr(newTimestampWriter(os.Stderr))
 	if err := tf.Apply(context.Background(), planFileOpt); err != nil {
 		return err
 	}
@@ -291,7 +312,7 @@ func applyOrDestroy(tf *tfexec.Terraform, b ApplyBehavior, of OutputFormat, dest
 
 	logging.Info("Testing if deployment group %s requires %s cloud infrastructure", tf.WorkingDir(), action)
 	// capture Terraform plan in a file
-	f, err := os.CreateTemp("", "plan-)")
+	f, err := os.CreateTemp("", "plan-")
 	if err != nil {
 		return err
 	}
