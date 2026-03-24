@@ -112,10 +112,8 @@ module "kubectl_apply_manifests" {
   timeout       = 1200
   values_yaml = [
     yamlencode({
-      manifests = [
-        for doc in split("\n---", each.value.content) : trimspace(doc)
-        if length(trimspace(doc)) > 0
-      ]
+      # Pass the entire unbroken string to Helm. Helm will parse inner '---' natively.
+      manifests = length(trimspace(each.value.content)) > 0 ? [each.value.content] : []
     })
   ]
 }
@@ -152,7 +150,8 @@ module "configure_kueue" {
 
   values_yaml = [
     yamlencode({
-      manifests = [for doc in split("\n---", local.kueue_config_content) : trimspace(doc) if length(trimspace(doc)) > 0]
+      # Pass the entire unbroken block to Helm. Helm/K8s will parse inner '---' natively.
+      manifests = length(trimspace(local.kueue_config_content)) > 0 ? [local.kueue_config_content] : []
     })
   ]
 
