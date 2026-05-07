@@ -50,16 +50,17 @@ print("This is a sample application running on GKE.")
 
 For this example, we'll deploy a basic GKE cluster using the `hpc-gke.yaml` blueprint.
 
-### 3.1 Configure gcloud
+> [!TIP]
+> **Configuring gcloud Defaults**
+>
+> While not strictly required for this tutorial (as we pass variables explicitly), you can configure your default project and region in `gcloud` for convenience:
+>
+> ```bash
+> gcloud config set project <PROJECT_ID>
+> gcloud config set compute/region <REGION/ZONE> # Or your preferred region
+> ```
 
-Ensure `gcloud` is configured with your project ID and a region/zone where GKE is available.
-
-```bash
-gcloud config set project <PROJECT_ID>
-gcloud config set compute/region <REGION/ZONE> # Or your preferred region
-```
-
-### 3.2 Create the Deployment Directory
+### 3.1 Create the Deployment Directory
 
 Create the deployment directory using the `hpc-gke.yaml` blueprint:
 
@@ -67,9 +68,9 @@ Create the deployment directory using the `hpc-gke.yaml` blueprint:
 ./gcluster create examples/hpc-gke.yaml --vars="project_id=<PROJECT_ID>,deployment_name=<CLUSTER_NAME>,region=<REGION/ZONE>,gcp_public_cidrs_access_enabled=false,authorized_cidr=$(curl -s ifconfig.me)/32"
 ```
 
-*Replace `<PROJECT_ID>` with your actual GCP Project ID.*
+*Note: Please ensure that you replace all placeholders enclosed in angle brackets (such as `<PROJECT_ID>`, `<CLUSTER_NAME>`, and `<REGION/ZONE>`) with your actual environment values before executing the command.*
 
-### 3.3 Deploy the GKE Cluster
+### 3.2 Deploy the GKE Cluster
 
 Deploy the GKE cluster:
 
@@ -96,9 +97,9 @@ Now that the cluster is deployed and your application code is prepared, you can 
         --location=<REGION>
     ```
 
-* You **must** have either `USER` or `USERNAME` environment variable set when using `--build-context`. `gcluster` uses this to ensure unique image tagging (e.g., `my-user-runner:tag`). The command will fail if both are missing.
+* You **must** have either `USER` or `USERNAME` environment variable set when using `--build-context` (usually set automatically by your OS). `gcluster` uses this to ensure unique image tagging (e.g., `my-user-runner:tag`). The command will fail if both are missing.
 
-### Unified Job Submission
+### 4.1 Unified Job Submission
 
 By specifying the `--compute-type` flag, you can use the exact same command to target a standard CPU cluster (using a full GCE machine type like `n2-standard-32`), an accelerated GPU cluster (using a GKE accelerator type like `nvidia-l4`), or a TPU cluster (using a shorthand string representing total chips/cores like `v6e-8`). The tool will automatically resolve the machine type, calculate `num-nodes`, and deduce the correct TPU topology if needed.
 
@@ -117,30 +118,32 @@ By specifying the `--compute-type` flag, you can use the exact same command to t
 > ./gcluster job config list
 > ```
 
-* **Submit the Job:**
+### 4.2 Submit the Job
 
-    ```bash
-    ./gcluster job submit \
-      --project <PROJECT_ID> \
-      --cluster <CLUSTER_NAME> \
-      --location <REGION/ZONE> \
-      --base-image python:3.9-slim \
-      --build-context job_details \
-      --command "python app.py" \
-      --name my-python-app-job \
-      --compute-type n2-standard-32
-    ```
+```bash
+./gcluster job submit \
+  --project <PROJECT_ID> \
+  --cluster <CLUSTER_NAME> \
+  --location <REGION/ZONE> \
+  --base-image python:3.9-slim \
+  --build-context job_details \
+  --command "python app.py" \
+  --name my-python-app-job \
+  --compute-type n2-standard-32
+```
 
-    *Replace `<PROJECT_ID>` with your actual GCP Project ID.*
+*Note: Please ensure that you replace all placeholders enclosed in angle brackets (such as `<PROJECT_ID>`, `<CLUSTER_NAME>`, and `<REGION/ZONE>`) with your actual environment values before executing the command.*
 
-    This command will:
-    1. Verify/install the JobSet CRD on your cluster.
-    2. Auto-discover the Kueue LocalQueue name from the cluster.
-    3. Use the compute type installed on the cluster nodes and map the necessary resource requests.
-    4. Build a container image from the job_details directory using python:3.9-slim as the base, and push it to Artifact Registry.
-    5. Generate and apply an intelligently configured Kubernetes JobSet manifest to your cluster.
+This command will:
+1. Verify/install the JobSet CRD on your cluster.
+2. Auto-discover the Kueue LocalQueue name from the cluster.
+3. Use the compute type installed on the cluster nodes and map the necessary resource requests.
+4. Build a container image from the job_details directory using python:3.9-slim as the base, and push it to Artifact Registry.
+5. Generate and apply an intelligently configured Kubernetes JobSet manifest to your cluster.
 
-### 4.2 Example for Multi-Slice GPU Job
+*Note: The following examples assume you have configured your default project, cluster, and location using `./gcluster job config set`.*
+
+### 4.3 Example for Multi-Slice GPU Job
 
 If you want to run a job across multiple groups of GPU nodes (e.g., 2 groups of 4 nodes each), you can use `--num-slices` and `--num-nodes`:
 
@@ -156,7 +159,7 @@ If you want to run a job across multiple groups of GPU nodes (e.g., 2 groups of 
 
 *This creates a JobSet with 2 replicas, each having 4 pods, totaling 8 nodes.*
 
-### 4.1 Example: Submit Job with Persistent Storage (Mounting Bucket)
+### 4.4 Example: Submit Job with Persistent Storage (Mounting Bucket)
 
 You can mount Cloud Storage buckets or host paths using the `--mount` flag. By default, mounts are read-only. You can specify read-write mode by appending `:rw` to the mount string:
 
@@ -171,8 +174,6 @@ You can mount Cloud Storage buckets or host paths using the `--mount` flag. By d
 ```
 
 ## 5. Verify the Job
-
-*Note: The following examples assume you have configured your default project, cluster, and location using `./gcluster job config set`.*
 
 Verify that the Kubernetes JobSet ran successfully on your GKE cluster.
 
@@ -769,6 +770,23 @@ $GCLUSTER job submit \
     --service-account workload-identity-k8s-sa
 ```
 
+To disable parallel containers and use a single container per VM, add the `--gke-disable-parallel-containers` flag:
+
+```bash
+$GCLUSTER job submit \
+    --name maxtext-llama3-1-final-tpu7x-32 \
+    --cluster $CLUSTER_NAME \
+    --location $LOCATION \
+    --image $IMAGE_NAME \
+    --command "cd /app && sed -i 's/use_vertex_tensorboard=false/use_vertex_tensorboard=false run_name=llama3-1-7x-test1/g' run_maxtext.sh && bash run_maxtext.sh $OUTPUT_DIR" \
+    --compute-type tpu7x-32 \
+    --num-slices 1 \
+    --topology 2x4x4 \
+    --priority medium \
+    --service-account workload-identity-k8s-sa \
+    --gke-disable-parallel-containers
+```
+
 #### 7.2.2 Build and Submit
 
 ```bash
@@ -903,6 +921,7 @@ The `gcluster job submit` command deploys a container image as a job (Kubernetes
 | `--image-pull-secret` | `string` | Secret name required to authenticate and pull images from private container registries. |
 | `--service-account` | `string` | Kubernetes service account name used to provide fine-grained IAM roles to the job pods. |
 | `--cpu-affinity` | `string` | CPU affinity rules (e.g., `'numa'`). |
+| `--gke-disable-parallel-containers` | `bool` | Disable parallel containers for TPU v7/v7x on GKE. (Default: `false`) |
 
 ### 8.4 `list` Flags
 *Use these flags to filter the list of jobs.*
