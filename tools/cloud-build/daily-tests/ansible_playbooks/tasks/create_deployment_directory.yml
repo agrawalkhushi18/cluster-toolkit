@@ -30,10 +30,6 @@
     deployment_vars_str: "--vars \"\\\"{{ cli_deployment_vars.items() | map('join', '=') | join('\\\"\" --vars \"\\\"') }}\\\"\""
   when: cli_deployment_vars is defined and cli_deployment_vars is mapping
 
-- name: Debug deployment vars
-  ansible.builtin.debug:
-    var: deployment_vars_str
-
 - name: Create Blueprint
   ansible.builtin.command: |
       ./gcluster create -l ERROR "{{ blueprint_yaml }}" \
