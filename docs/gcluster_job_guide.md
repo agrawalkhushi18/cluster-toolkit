@@ -25,9 +25,7 @@ If you use `--build-context` to build images on-the-fly, you must set:
 > * **Container Credential Helper**: Checks if Docker is configured for GCR and Artifact Registry.
 > * **Artifact Registry API**: Checks if `artifactregistry.googleapis.com` is enabled.
 >
-> The tool will identify missing dependencies and print the necessary installation or remediation commands directly to your console for review and execution.
->
-> If any non-foundational component is missing or unconfigured, `gcluster` will fail and print the missing dependencies along with the required commands to fix the environment directly to your console for review and execution.
+> If any required dependencies are missing or unconfigured, `gcluster` will identify them and print the necessary installation or remediation commands directly to your console for review and execution
 >
 > Successful checks are remembered in `~/.gcluster/job_prereq_state.json` to optimize subsequent runs. Checks are re-run if the state is older than 24 hours or if you switch projects.
 
