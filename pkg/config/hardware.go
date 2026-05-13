@@ -183,33 +183,6 @@ func extractTopologyFromWorkloadPolicy(bp Blueprint, mod *Module) (string, bool)
 	return "", false
 }
 
-func injectCompactPlacementPolicy(mod *Module, tpuTopologyStr string) {
-	var ppMap map[string]cty.Value
-	if mod.Settings.Has("placement_policy") {
-		ppRaw := mod.Settings.Get("placement_policy")
-		if ppRaw.Type().IsObjectType() {
-			ppMap = ppRaw.AsValueMap()
-		} else {
-			ppMap = make(map[string]cty.Value)
-		}
-	} else {
-		ppMap = make(map[string]cty.Value)
-	}
-	ppMap["type"] = cty.StringVal("COMPACT")
-	if tpuTopologyStr != "" {
-		if origTopo, ok := ppMap["tpu_topology"]; ok {
-			if _, isExpr := IsExpressionValue(origTopo); isExpr {
-				// Keep the original expression to avoid breaking validators
-			} else {
-				ppMap["tpu_topology"] = cty.StringVal(tpuTopologyStr)
-			}
-		} else {
-			ppMap["tpu_topology"] = cty.StringVal(tpuTopologyStr)
-		}
-	}
-	mod.Settings = mod.Settings.With("placement_policy", cty.ObjectVal(ppMap))
-}
-
 // expandHardwareSettings automatically infers missing hardware settings
 // such as static_node_count for TPUs based on machine_type and tpu_topology.
 func expandHardwareSettings(bp Blueprint, mod *Module) error {
@@ -234,7 +207,7 @@ func expandHardwareSettings(bp Blueprint, mod *Module) error {
 
 	if mod.Settings.Has("enable_flex_start") {
 		val, err := bp.Eval(mod.Settings.Get("enable_flex_start"))
-		if err == nil && val.Type() == cty.Bool && val.True() {
+		if err == nil && val.Type() == cty.Bool && !val.IsNull() && val.IsKnown() && val.True() {
 			return nil
 		}
 	}
@@ -245,10 +218,6 @@ func expandHardwareSettings(bp Blueprint, mod *Module) error {
 	}
 
 	mod.Settings = mod.Settings.With("static_node_count", cty.NumberIntVal(int64(nodes)))
-
-	if nodes > 1 {
-		injectCompactPlacementPolicy(mod, tpuTopologyStr)
-	}
 
 	return nil
 }
