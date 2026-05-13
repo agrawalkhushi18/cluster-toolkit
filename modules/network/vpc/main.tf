@@ -180,7 +180,7 @@ locals {
       nic_type           = "GVNIC"
       queue_count        = null
       network_ip         = null
-      stack_type         = null
+      stack_type         = local.output_primary_subnetwork_stack_type
       access_config      = []
       ipv6_access_config = []
       alias_ip_range     = []
