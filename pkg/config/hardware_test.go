@@ -305,6 +305,21 @@ func TestExpandHardwareSettings(t *testing.T) {
 	if mod4.Settings.Has("static_node_count") {
 		t.Errorf("expected static_node_count NOT to be set for non-TPU machine type")
 	}
+
+	// Test that it skips Flex Start pools
+	mod5 := &Module{
+		Settings: Dict{}.
+			With("machine_type", cty.StringVal("ct6e-standard-4t")).
+			With("tpu_topology", cty.StringVal("2x2")).
+			With("enable_flex_start", cty.BoolVal(true)),
+	}
+	err = expandHardwareSettings(bp, mod5)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if mod5.Settings.Has("static_node_count") {
+		t.Errorf("expected static_node_count NOT to be set when enable_flex_start is true")
+	}
 }
 
 func TestResolveTopologyForChips(t *testing.T) {

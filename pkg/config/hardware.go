@@ -197,7 +197,15 @@ func injectCompactPlacementPolicy(mod *Module, tpuTopologyStr string) {
 	}
 	ppMap["type"] = cty.StringVal("COMPACT")
 	if tpuTopologyStr != "" {
-		ppMap["tpu_topology"] = cty.StringVal(tpuTopologyStr)
+		if origTopo, ok := ppMap["tpu_topology"]; ok {
+			if _, isExpr := IsExpressionValue(origTopo); isExpr {
+				// Keep the original expression to avoid breaking validators
+			} else {
+				ppMap["tpu_topology"] = cty.StringVal(tpuTopologyStr)
+			}
+		} else {
+			ppMap["tpu_topology"] = cty.StringVal(tpuTopologyStr)
+		}
 	}
 	mod.Settings = mod.Settings.With("placement_policy", cty.ObjectVal(ppMap))
 }
@@ -222,6 +230,13 @@ func expandHardwareSettings(bp Blueprint, mod *Module) error {
 
 	if !IsTPU(mtStr) {
 		return nil
+	}
+
+	if mod.Settings.Has("enable_flex_start") {
+		val, err := bp.Eval(mod.Settings.Get("enable_flex_start"))
+		if err == nil && val.Type() == cty.Bool && val.True() {
+			return nil
+		}
 	}
 
 	nodes, err := CalculateAcceleratorNodes(mtStr, tpuTopologyStr, 0)
