@@ -177,7 +177,7 @@ locals {
       network            = module.vpc.network_name
       subnetwork         = local.output_primary_subnetwork_name
       subnetwork_project = var.project_id
-      nic_type           = "GVNIC"
+      nic_type           = var.nic_type
       queue_count        = null
       network_ip         = null
       stack_type         = local.output_primary_subnetwork_stack_type
