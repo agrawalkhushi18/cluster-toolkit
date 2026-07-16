@@ -369,6 +369,9 @@ func (g *GKEOrchestrator) GeneratePathwaysManifest(job orchestrator.JobDefinitio
 		// WorkerImage defaults to ServerImage if not explicitly set
 		job.Pathways.WorkerImage = job.Pathways.ServerImage
 	}
+	if job.Pathways.MTCEnabled && job.Pathways.RamdiskDirectory == "" {
+		job.Pathways.RamdiskDirectory = "/tmp/mtc_checkpoints"
+	}
 
 	tmpl, err := yamltemplate.New("pathways_jobset.tmpl").ParseFS(templatesFS, "templates/pathways_jobset.tmpl")
 	if err != nil {
@@ -1146,6 +1149,9 @@ func (g *GKEOrchestrator) queryDiscoveredTopologies(accelLabel string, machineTy
 }
 
 func (g *GKEOrchestrator) BuildContainerImage(job orchestrator.JobDefinition) (string, error) {
+	if job.Pathways.Headless {
+		return "", nil
+	}
 	if job.DryRunManifest != "" {
 		if job.BaseImage != "" {
 			logging.Info("[Dry Run] Skipping Crane build, generating predicted URI...")
@@ -1240,12 +1246,7 @@ func (g *GKEOrchestrator) prepareJobSetTemplateData(opts ManifestOptions, comman
 		exclusiveTopology = "alpha.jobset.sigs.k8s.io/exclusive-topology: cloud.google.com/gke-nodepool"
 	}
 
-	workerBackoffLimit := 0
-	if opts.Pathways.ElasticSlices > 0 {
-		workerBackoffLimit = opts.Pathways.MaxSliceRestarts * opts.NodesPerSlice
-	} else {
-		workerBackoffLimit = opts.NodesPerSlice * 4
-	}
+	workerBackoffLimit := 2048000
 
 	var proxyArgsList []string
 	if opts.Pathways.ProxyArgs != "" {
@@ -1423,14 +1424,10 @@ func parseConditions(conditions []interface{}, statusStr *string, completionTime
 }
 
 func (g *GKEOrchestrator) getCurrentNamespace() (string, error) {
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	configOverrides := &clientcmd.ConfigOverrides{}
-	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-	ns, _, err := kubeConfig.Namespace()
-	if err != nil || ns == "" {
+	if g.kubeClient == nil {
 		return "default", nil
 	}
-	return ns, nil
+	return g.kubeClient.GetCurrentNamespace()
 }
 
 func (g *GKEOrchestrator) getKueueWorkloadStatus(client dynamic.Interface, ns string, uid string) (string, error) {
@@ -1988,4 +1985,15 @@ func (d *DefaultExecutor) ExecuteCommandStream(name string, args ...string) erro
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func (d *DefaultKubeClient) GetCurrentNamespace() (string, error) {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+	ns, _, err := kubeConfig.Namespace()
+	if err != nil || ns == "" {
+		return "default", nil
+	}
+	return ns, nil
 }
