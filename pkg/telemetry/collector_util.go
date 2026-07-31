@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,14 +49,21 @@ type result struct {
 
 // Storage constants
 const (
-	StoragePrefixGCS       = "gcs"       // Prefix for Google Cloud Storage metrics
-	StoragePrefixFilestore = "filestore" // Prefix for Filestore tiers
-	StoragePrefixRedis     = "redis"     // Prefix for Redis database usage
-	StoragePrefixSpanner   = "spanner"   // Prefix for Spanner database usage
-	StorageTypeLocalSSD    = "local-ssd" // Standalone metric base for Local SSDs
+	StoragePrefixGCS         = "gcs"            // Prefix for Google Cloud Storage metrics
+	StoragePrefixFilestore   = "filestore"      // Prefix for Filestore tiers
+	StoragePrefixRedis       = "redis"          // Prefix for Redis database usage
+	StoragePrefixSpanner     = "spanner"        // Prefix for Spanner database usage
+	StoragePrefixNetapp      = "netapp"         // Prefix for Netapp tiers
+	StorageTypeLocalSSD      = "local-ssd"      // Standalone metric base for Local SSDs
+	StorageTypeLustre        = "managed-lustre" // Standalone metric base for Managed Lustre
+	StorageTypeParallelstore = "parallelstore"  // Standalone metric base for Parallelstore
 
-	ModuleSourceRedis   = "database/redis"   // Module origin to detect Redis
-	ModuleSourceSpanner = "database/spanner" // Module origin to detect Spanner
+	ModuleSourceRedis         = "database/redis"                  // Module origin to detect Redis
+	ModuleSourceSpanner       = "database/spanner"                // Module origin to detect Spanner
+	ModuleSourceLustre        = "file-system/managed-lustre"      // Module origin to detect Lustre
+	ModuleSourceParallelstore = "file-system/parallelstore"       // Module origin to detect Parallelstore
+	ModuleSourceNetappPool    = "file-system/netapp-storage-pool" // Module origin to detect Netapp Pool
+	ModuleSourceNetappVolume  = "file-system/netapp-volume"       // Module origin to detect Netapp Volume
 )
 
 var (
@@ -70,8 +78,20 @@ var (
 		"instance_count",    // VM instances and Batch login nodes use 'instance_count' to define static nodes. Default is 1.
 		"target_size",       // Used by HTCondor execute points and MIGs for pool capacity.
 	}
-	staticNodeCountInlineKeys = []string{"nodeset", "nodeset_tpu", "partition"} // Combine top-level explicit keys and complex inline object list keys for Slurm V6.
-	storageTypeSettings       = []string{
+	staticNodeCountInlineKeys   = []string{"nodeset", "nodeset_tpu", "partition"} // Combine top-level explicit keys and complex inline object list keys for Slurm V6.
+	dynamicMinNodeCountSettings = []string{
+		"autoscaling_min_node_count",
+		"autoscaling_total_min_nodes",
+		"system_node_pool_node_count.total_min_nodes", // Used by gke-cluster system node pools
+	}
+	dynamicMaxNodeCountSettings = []string{
+		"autoscaling_max_node_count",
+		"autoscaling_total_max_nodes",
+		"node_count_dynamic_max",
+		"max_size",                                    // Used by HTCondor execute points for unbounded scaling limit.
+		"system_node_pool_node_count.total_max_nodes", // Used by gke-cluster system node pools
+	}
+	storageTypeSettings = []string{
 		"disk_type",
 		"system_node_pool_disk_type",
 		"filestore_tier",
@@ -84,6 +104,11 @@ var (
 		"local_ssd_count_nvme",
 		"local_nvme_ssd_count",
 		"local_ssd_count",
+	}
+	zonalNodeCountSettings = []string{
+		"static_node_count",
+		"autoscaling_min_node_count",
+		"autoscaling_max_node_count",
 	}
 )
 
@@ -204,6 +229,7 @@ func getStorageTypesFromModule(m config.Module, bp config.Blueprint) []string {
 	extractAdditionalDisks(m, bp, addStorageType)
 	extractInlineNodesets(m, bp, addStorageType)
 	extractDatabaseStorageTypes(m, bp, addStorageType)
+	extractFileSystemStorageTypes(m, bp, addStorageType)
 
 	return storageTypes
 }
@@ -211,9 +237,10 @@ func getStorageTypesFromModule(m config.Module, bp config.Blueprint) []string {
 func extractExplicitAndDefaultStorageTypes(m config.Module, bp config.Blueprint, addStorageType func(string)) {
 	formatType := func(key, val string) string {
 		val = strings.TrimSpace(val)
-		if key == "storage_class" {
+		switch key {
+		case "storage_class":
 			return StoragePrefixGCS + "-" + val
-		} else if key == "filestore_tier" {
+		case "filestore_tier":
 			return StoragePrefixFilestore + "-" + val
 		}
 		return val
@@ -238,21 +265,38 @@ func extractExplicitAndDefaultStorageTypes(m config.Module, bp config.Blueprint,
 	}
 }
 
+// extractPrefixedSetting is a helper function that extracts explicit or default settings and prepends a prefix.
+func extractPrefixedSetting(prefix, key string, m config.Module, bp config.Blueprint, addStorageType func(string)) {
+	if val := extractExplicitStringSetting(key, m, bp); val != "" {
+		addStorageType(prefix + "-" + val)
+	} else if val, _, found := extractDefaultSetting[string]([]string{key}, m); found {
+		if trimmed := strings.TrimSpace(val); trimmed != "" {
+			addStorageType(prefix + "-" + trimmed)
+		}
+	}
+}
+
 func extractDatabaseStorageTypes(m config.Module, bp config.Blueprint, addStorageType func(string)) {
 	src := string(m.Source)
 
-	extractAndAdd := func(moduleType, key string) {
-		if val := extractExplicitStringSetting(key, m, bp); val != "" {
-			addStorageType(moduleType + "-" + val)
-		} else if val, _, found := extractDefaultSetting[string]([]string{key}, m); found && val != "" {
-			addStorageType(moduleType + "-" + strings.TrimSpace(val))
-		}
-	}
-
 	if strings.Contains(src, ModuleSourceRedis) {
-		extractAndAdd(StoragePrefixRedis, "tier")
+		extractPrefixedSetting(StoragePrefixRedis, "tier", m, bp, addStorageType)
 	} else if strings.Contains(src, ModuleSourceSpanner) {
-		extractAndAdd(StoragePrefixSpanner, "edition")
+		extractPrefixedSetting(StoragePrefixSpanner, "edition", m, bp, addStorageType)
+	}
+}
+
+func extractFileSystemStorageTypes(m config.Module, bp config.Blueprint, addStorageType func(string)) {
+	src := string(m.Source)
+
+	if strings.Contains(src, ModuleSourceLustre) {
+		addStorageType(StorageTypeLustre)
+	} else if strings.Contains(src, ModuleSourceParallelstore) {
+		addStorageType(StorageTypeParallelstore)
+	} else if strings.Contains(src, ModuleSourceNetappPool) {
+		extractPrefixedSetting(StoragePrefixNetapp, "service_level", m, bp, addStorageType)
+	} else if strings.Contains(src, ModuleSourceNetappVolume) {
+		addStorageType(StoragePrefixNetapp)
 	}
 }
 
@@ -401,7 +445,7 @@ func getModuleNodeCounts(m config.Module, bp config.Blueprint) map[string]int {
 
 	// Process complex inline iterables (Slurm V6)
 	for _, key := range staticNodeCountInlineKeys {
-		if processInlineKey(m, bp, key, topMachineType, counts) {
+		if processInlineKey(m, bp, key, topMachineType, counts, staticNodeCountSettings) {
 			inlineFound = true
 		}
 	}
@@ -412,7 +456,7 @@ func getModuleNodeCounts(m config.Module, bp config.Blueprint) map[string]int {
 
 	// Fallback to standard top-level extraction
 	if topMachineType != "" {
-		if count, found := getTopLevelNodeCount(m, bp, topMachineType); found {
+		if count, found := getTopLevelNodeCount(m, bp, topMachineType, staticNodeCountSettings); found {
 			counts[topMachineType] += count
 		}
 	}
@@ -420,7 +464,7 @@ func getModuleNodeCounts(m config.Module, bp config.Blueprint) map[string]int {
 }
 
 // processInlineKey evaluates a specific key for iterable structures and processes its items.
-func processInlineKey(m config.Module, bp config.Blueprint, key string, topMachineType string, counts map[string]int) bool {
+func processInlineKey(m config.Module, bp config.Blueprint, key string, topMachineType string, counts map[string]int, targetKeys []string) bool {
 	if !m.Settings.Has(key) {
 		return false
 	}
@@ -439,13 +483,13 @@ func processInlineKey(m config.Module, bp config.Blueprint, key string, topMachi
 	}
 
 	for _, item := range unmarked.AsValueSlice() {
-		processInlineItem(item, topMachineType, counts)
+		processInlineItem(item, topMachineType, counts, targetKeys)
 	}
 	return true
 }
 
 // processInlineItem extracts machine types and counts from an individual map/object in an inline list.
-func processInlineItem(item cty.Value, topMachineType string, counts map[string]int) {
+func processInlineItem(item cty.Value, topMachineType string, counts map[string]int, targetKeys []string) {
 	item, _ = item.Unmark()
 	if !item.IsKnown() || item.IsNull() {
 		return
@@ -461,28 +505,31 @@ func processInlineItem(item cty.Value, topMachineType string, counts map[string]
 		inlineMType = topMachineType
 	}
 
-	if count, found := extractIntFromCtyMap(item, staticNodeCountSettings); found && inlineMType != "" {
+	if count, found := extractIntFromCtyMap(item, targetKeys); found && inlineMType != "" {
 		counts[inlineMType] += count
 	}
 }
 
-func getTopLevelNodeCount(m config.Module, bp config.Blueprint, topMachineType string) (int, bool) {
-	var baseCount int
-	var found bool
-
-	for _, key := range staticNodeCountSettings {
+func extractTargetNodeCount(m config.Module, bp config.Blueprint, targetKeys []string) (int, bool) {
+	for _, key := range targetKeys {
 		if count, ok := extractExplicitIntSetting(key, m, bp); ok {
-			baseCount = count
-			found = true
-			if key == "static_node_count" {
-				baseCount *= getZonalMultiplier(m, bp)
+			// Apply zonal multipliers only to variables explicitly spanning a single zone natively.
+			// Global metrics (e.g. autoscaling_total_max_nodes) span the entire cluster and should not be multiplied.
+			if slices.Contains(zonalNodeCountSettings, key) {
+				count *= getZonalMultiplier(m, bp)
 			}
-			break
+			return count, true
 		}
 	}
+	return 0, false
+}
+
+func getTopLevelNodeCount(m config.Module, bp config.Blueprint, topMachineType string, targetKeys []string) (int, bool) {
+	baseCount, found := extractTargetNodeCount(m, bp, targetKeys)
 
 	// Static node count is calculated from the Topology for TPU machines.
-	if !found {
+	isStatic := len(targetKeys) > 0 && targetKeys[0] == "static_node_count"
+	if !found && isStatic {
 		if count, ok := getTPUNodeCount(m, bp, topMachineType); ok {
 			baseCount = count
 			found = true
@@ -490,11 +537,15 @@ func getTopLevelNodeCount(m config.Module, bp config.Blueprint, topMachineType s
 	}
 
 	if !found {
-		if count, _, ok := extractDefaultSetting[int](staticNodeCountSettings, m); ok {
+		if count, key, ok := extractDefaultSetting[int](targetKeys, m); ok {
 			baseCount = count
 			found = true
 			if ifModulesMatchPatterns([]string{string(m.Source)}, isGkeModulePatterns) == "true" {
-				baseCount *= getZonalMultiplier(m, bp)
+				// Apply zonal multipliers only to variables explicitly spanning a single zone natively.
+				// Global metrics (e.g. autoscaling_total_max_nodes) span the entire cluster and should not be multiplied.
+				if slices.Contains(zonalNodeCountSettings, key) {
+					baseCount *= getZonalMultiplier(m, bp)
+				}
 			}
 		}
 	}
@@ -602,10 +653,32 @@ func extractIntFromCtyMap(val cty.Value, targetKeys []string) (int, bool) {
 // extractExplicitIntSetting attempts to get the given key int value if explicitly defined.
 // It returns the int value, and a boolean indicating if the setting was found.
 func extractExplicitIntSetting(key string, m config.Module, bp config.Blueprint) (int, bool) {
-	if !m.Settings.Has(key) {
+	keys := strings.Split(key, ".")
+	if !m.Settings.Has(keys[0]) {
 		return 0, false
 	}
-	keyValue := m.Settings.Get(key)
+	keyValue := m.Settings.Get(keys[0])
+
+	// Traverse nested object properties if dot notation is used
+	for i := 1; i < len(keys); i++ {
+		if ev, err := bp.Eval(keyValue); err == nil {
+			keyValue = ev
+		}
+		unmarked, _ := keyValue.Unmark()
+		if !unmarked.IsKnown() || unmarked.IsNull() {
+			return 0, false
+		}
+		if !unmarked.Type().IsObjectType() && !unmarked.Type().IsMapType() {
+			return 0, false
+		}
+		asMap := unmarked.AsValueMap()
+		if val, exists := asMap[keys[i]]; exists {
+			keyValue = val
+		} else {
+			return 0, false
+		}
+	}
+
 	evaluatedKey, err := bp.Eval(keyValue)
 	if err != nil {
 		return 0, false
@@ -971,4 +1044,84 @@ func parseOsReleaseField(line string) string {
 		return ""
 	}
 	return strings.Trim(parts[1], "'\"")
+}
+
+func getModuleDynamicNodeCounts(m config.Module, bp config.Blueprint, targetKeys []string) map[string]int {
+	if ifModulesMatchPatterns([]string{string(m.Source)}, isGkeModulePatterns) == "true" {
+		if m.Settings.Has("static_node_count") {
+			if val, err := bp.Eval(m.Settings.Get("static_node_count")); err == nil {
+				unmarked, _ := val.Unmark()
+				if unmarked.IsKnown() && !unmarked.IsNull() {
+					return map[string]int{}
+				}
+			}
+		}
+	}
+	counts := make(map[string]int)
+	topMachineType := getMachineTypeFromModule(m, bp)
+	inlineFound := false
+	for _, key := range staticNodeCountInlineKeys {
+		if processInlineKey(m, bp, key, topMachineType, counts, targetKeys) {
+			inlineFound = true
+		}
+	}
+	if inlineFound {
+		return counts
+	}
+	if topMachineType != "" {
+		if count, found := getTopLevelNodeCount(m, bp, topMachineType, targetKeys); found {
+			counts[topMachineType] += count
+		}
+	}
+	return counts
+}
+
+// detectMachineCategory attempts to identify the hardware nature of an instantiated machine type by interpreting available cluster toolkit mappings (e.g. associating mapped nvidia labels with GPUs).
+// Returns "CPU", "GPU", "TPU", or "Other".
+func detectMachineCategory(mType string) string {
+	mType = strings.ToLower(strings.TrimSpace(mType))
+	mType = config.ResolveMachineType(mType)
+
+	if config.IsTPU(mType) {
+		return "TPU"
+	}
+
+	mappings := config.GetMachineMappings()
+
+	for family, label := range mappings.MachineFamilyToLabelMap {
+		if strings.HasPrefix(mType, family) && strings.Contains(label, "nvidia") {
+			return "GPU"
+		}
+	}
+
+	if strings.Contains(mType, "gpu") {
+		return "GPU"
+	}
+
+	for _, p := range mappings.CpuMachineFamilies {
+		if strings.HasPrefix(mType, p) {
+			return "CPU"
+		}
+	}
+
+	if isCPUFallback(mType) {
+		return "CPU"
+	}
+
+	return "Other"
+}
+
+var cpuKeywords = []string{
+	"-standard-", "-highmem-", "-highcpu-", "-megamem-",
+	"-ultramem-", "custom-", "-micro", "-small", "-medium", "-metal",
+}
+
+// isCPUFallback checks if the machine type contains any of the standard CPU identifiers.
+func isCPUFallback(mType string) bool {
+	for _, kw := range cpuKeywords {
+		if strings.Contains(mType, kw) {
+			return true
+		}
+	}
+	return false
 }
