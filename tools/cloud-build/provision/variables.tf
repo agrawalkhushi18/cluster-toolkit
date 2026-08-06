@@ -48,7 +48,16 @@ variable "kueue_migrated_tests" {
   description = "List of tests migrated to Kueue"
   type        = list(string)
   default = [
-    "slurm-gcp-v6-rocky8"
+    "slurm-gcp-v6-rocky8",
+    "batch-mpi",
+    "htcondor",
+    "packer",
+    "monitoring",
+    "chrome-remote-desktop",
+    "chrome-remote-desktop-ubuntu",
+    "ansible-vm",
+    "e2e",
+    "hcls"
   ]
 }
 
