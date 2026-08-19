@@ -43,6 +43,10 @@ var JobCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		orc = gkeOrchestratorFactory()
 
+		if cmd.Name() == "gke-template-extract" {
+			return nil
+		}
+
 		ctx := loadContext()
 		if clusterName == "" {
 			clusterName = ctx.ClusterName
@@ -60,9 +64,11 @@ var JobCmd = &cobra.Command{
 		if location == "" {
 			return fmt.Errorf("location is required; please specify it using the --location flag or set a default value using 'gcluster job config set location <value>'")
 		}
-
 		if projectID == "" {
 			return fmt.Errorf("project ID is required; please specify it using the --project flag or set a default value using 'gcluster job config set project <value>'")
+		}
+		if err := ensureBasicPrerequisites(cmd, projectID); err != nil {
+			return err
 		}
 
 		resolvedLoc, err := orc.Initialize(clusterName, location, projectID)

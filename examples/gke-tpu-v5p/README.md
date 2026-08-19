@@ -86,6 +86,14 @@ This section guides you through the cluster creation process, ensuring that your
 
 This blueprint installs and configures [Kueue](https://kueue.sigs.k8s.io/) by default to manage TPU quotas and queue job submissions. The provided `tpu-kueue-jax-sample.yaml` file creates a Kubernetes Job that integrates both Kueue queue routing and JAX TPU device count validation.
 
+**NOTE**:
+By default, the toolkit dynamically applies an embedded kueue configuration based on your **Pathways** and **Dynamic Slicing** settings.
+
+* **Custom Configurations:**
+  * If you explicitly disable both Pathways and Dynamic Slicing, the toolkit will still install the Kueue engine/controllers, but it leaves them unconfigured(no default queues or resource flavors are created).
+  * If you want to override the default embedded configurations, or apply configuration in the scenario above, you can uncomment and set `config_path` in the `kueue` section of the `workload-manager-install` module in the blueprint.
+  * For more details on default configurations and variables, see the [`kubectl-apply` documentation](https://github.com/GoogleCloudPlatform/cluster-toolkit/tree/main/modules/management/kubectl-apply#inputs).
+
 * **Quota Allocation:** The blueprint automatically calculates and sets a `google.com/tpu` quota in Kueue's `ClusterQueue`. The node count is derived from your `machine_type` and `tpu_topology`, and the quota is calculated using the formula: `num_slices` × `(total_chips_in_topology / chips_per_machine)` × `chips_per_machine`.
 
 1. **Connect to your cluster:**
@@ -161,7 +169,7 @@ Before submitting the job to the live GKE cluster, it is highly recommended to p
 ```sh
 ./gcluster job submit \
   --name pathways-job \
-  --compute-type v5p-4 \
+  --compute-type v5p-8 \
   --pathways \
   --pathways-gcs-location gs://YOUR_COORDINATION_BUCKET/pathways-scratch \
   --image us-docker.pkg.dev/cloud-tpu-images/jax-ai-image/tpu:latest \
@@ -176,7 +184,7 @@ This generates a local file `my-manifest.yaml` containing the complete Kubernete
 
 #### CLI Flags Description
 * `--name`: A unique identifier for your job (keep it under 10 characters to avoid Kubernetes label length constraints).
-* `--compute-type`: The TPU slice topology configuration (e.g., `v5p-4` maps to a `2x2x1` TPU v5p topology).
+* `--compute-type`: The TPU slice topology configuration (e.g., `v5p-8` maps to a `2x2x1` TPU v5p topology).
 * `--pathways`: Flags GCluster to generate a Pathways JobSet coordination architecture.
 * `--pathways-gcs-location`: A Cloud Storage bucket URI used by the coordinator and worker pods to synchronize network state and parameters.
 * `--image`: The container image for the workload (using the standard TPU JAX image).
@@ -190,7 +198,7 @@ Once you have verified the manifest, submit the job to your live GKE cluster by 
 ```sh
 ./gcluster job submit \
   --name pathways-job \
-  --compute-type v5p-4 \
+  --compute-type v5p-8 \
   --pathways \
   --pathways-gcs-location gs://YOUR_COORDINATION_BUCKET/pathways-scratch \
   --image us-docker.pkg.dev/cloud-tpu-images/jax-ai-image/tpu:latest \

@@ -20,8 +20,7 @@ substitutions:
 
 timeout: 86400s
 queueTtl: 86400s  # 24hr
-options:
-  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+logsBucket: "gs://$PROJECT_NUMBER.cloudbuild-logs.googleusercontent.com"
 
 steps:
 # 1. Build gcluster base image
@@ -97,6 +96,10 @@ steps:
               set -x -e
               echo "\"test_file_path\": tools/cloud-build/daily-tests/builds/gcluster-dockerfile.yaml"
               cd /workspace
+
+              # Force clear any leaked Terraform state locks from previously preempted attempts of this test run.
+              echo "Checking for and clearing leaked Terraform state locks..."
+              gsutil rm "gs://daily-tests-tf-state/*/dockerfile-test/**.tflock" 2>/dev/null || true
 
               RUN_CLEANUP=true
               cleanup_pod() {
